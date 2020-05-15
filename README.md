@@ -16,6 +16,8 @@ Hence the 3 factors that are 'adjutable' are the R0 before "lockdown", during "l
 A modified simulated annealing approach is then used to find the best match using these 2 variables.
 
 The result shows a relatively close match to the actual data.
+![Alt text](./output.svg)
+<img src="./output.svg">
 
 Of note - this analysis estimates an R0 prior to lockdown of around 1.8, but a inflow of arround 14 people a day during the initial phases (e.g. starting at the end of December 2019, as reported by the French press).
 
