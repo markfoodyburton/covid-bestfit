@@ -20,8 +20,8 @@ The result shows a relatively close match to the actual data.
 
 Of note - this analysis estimates an R0 prior to lockdown of around 1.8, but a inflow of arround 14 people a day during the initial phases (e.g. starting at the end of December 2019, as reported by the French press).
 
-R0 = 1.83510069563299,
-R0 lockdown = 0.733478820021408
-Imported cases per day = 13.511478613536
+* R0 = 1.83510069563299,
+* R0 lockdown = 0.733478820021408
+* Imported cases per day = 13.511478613536
 
 This perl script requires nothing much to run it (appart from perl) - but probably does require that you edit the script to do anything interesting.
