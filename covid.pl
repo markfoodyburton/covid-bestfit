@@ -60,22 +60,12 @@ sub gaussian {
 }
 
 
-#foreach $i (1..40) {
-#    print gaussian($i, 4,5)."\n";
-#    $t+=gaussian($i, 4,5);
-#}
-#print "total $t\n";
-#exit -1;
-
 my @rcases;
 
 sub run {
     my ($verbose, $R0_pop, $R0_ld, $importperday) = @_;
 
-#    my $R0_pop=1.88;
-
     my $lockdownday=75;
-#    my $R0_ld=0.7;
     my $deconfineday=136;
     my $R0_dld=1.2;
 
@@ -84,7 +74,6 @@ sub run {
     my @casereports;
     my @infected;
     $infected[0]=1;     # start with 1 cases
-#    my $importperday=10;  # dont model any 'inflow'
 
     my $infectday_m=4;  # syptoms appear ~ day 5, 1 day before is most infectious
     my $infectday_v=5;
@@ -181,9 +170,7 @@ sub findlocalmin {
                 $old=@{$f_ref}[$f];
                 @{$f_ref}[$f] += @{$f_ref}[$f]*(1/$d);
                 $s=run(0, @{$f_ref}[0], @{$f_ref}[1], @{$f_ref}[2]);
-#                print "tried R0 @{$f_ref}[0], R0 lockdown @{$f_ref}[1], Import/Day @{$f_ref}[2] - score : $s\n";
                 if ($s < $best) {
-#                    print "Found one\n";
                     $best=$s;
                     $d=abs($d*2);
                 } else {
@@ -201,22 +188,15 @@ sub findlocalmin {
 }
 
 
-run(1, 1.83510069563299, 0.733478820021408, 13.511478613536);
-exit(1);
+if (scalar @ARGV == 3) {
+    run(1, @ARGV[0], $ARGV[1], $ARGV[2]);
+    exit(-1);
+}
     
 my $R0=2;#1.88;
 my $R0ld=0.5;#0.7;
 my $imp=5;#10;
-#my $bestscore=run(0,$R0,$R0ld,$imp);
 my $bestscore=run(0,1,0.1,0);
-
-#my @facs=(2.1,0.5,5);
-#findlocalmin(\@facs);
-#run(1, $facs[0], $facs[1], $facs[2]);
-#print "$facs[0], $facs[1] $facs[2] \n";
-#exit(1);
-
-
 
 my @facs=(2,0.5,5);
 my @facs_min=(1.0, 0.1,  0);
@@ -240,79 +220,8 @@ foreach $t (1..80) {
     }
 }
 
-print ",,,,,R0 $bestfacs[0], R0 lockdown $bestfacs[1], Import/Day $bestfacs[2]\n";      
-run(1, $bestfacs[0], $bestfacs[1], $bestfacs[2]);
-
-exit(1);
+print "R0 $bestfacs[0], R0 lockdown $bestfacs[1], Import/Day $bestfacs[2]\n";
 
 
 
-@R0_r=(1,5);
-@R0ld_r=(0.1,2);
-@imp_r=(0,50);
-
-foreach $acc (1..6) {
-    for ($imp_=$imp_r[0]; $imp_<$imp_r[1]; $imp_+=($imp_r[1]-$imp_r[0])/10) {
-        for ($R0_=$R0_r[0];$R0_<$R0_r[1];$R0_+=($R0_r[1]-$R0_r[0])/10) {
-            for ($R0ld_=$R0ld_r[0];$R0ld_<$R0ld_r[1];$R0ld_+=($R0ld_r[1]-$R0ld_r[0])/10) {
-                $s=run(0, $R0_, $R0ld_, $imp_);
-                print "tried R0 $R0_, R0 lockdown $R0ld_, Import/Day $imp_ - score : $s\n";
-                if ($s<$bestscore) {
-                    print "Found one\n";
-                    $R0=$R0_; $R0ld=$R0ld_; $imp=$imp_;
-                    $bestscore=$s;
-                }
-            }
-        }
-    }
-    my $d=($R0_r[1]-$R0_r[0])/10;
-    $R0_r[0]=$R0-$d;
-    $R0_r[1]=$R0+$d;
-    my $d=($R0ld_r[1]-$R0ld_r[0])/10;
-    $R0ld_r[0]=$R0ld-$d;
-    $R0ld_r[1]=$R0ld+$d;
-    my $d=($imp_r[1]-$imp_r[0])/10;
-    $imp_r[0]=$imp-$d;
-    $imp_r[1]=$imp+$d;
-}
-
-            
-
-#my $inittemp=1;
-#my $k=1;
-#foreach $t (1..1000) {
-#    $temp=(1 - $k/1000 ) *$inittemp;
-#    my $c=rand(3);
-#    my $R0_=$R0*(1+(rand($temp*2)-$temp));
-#    foreach $ti (1..10) {
-#        $temp=(1 - $ti/10 ) *$temp;
-#        my $R0ld_=$R0ld*(1+(rand($temp*2)-$temp));
-#        my $olds,$s;
-#        my $d=0.5;
-#        foreach $tii (1..10) {
-#            my $imp_=$imp*(1+(rand($temp*2)-($temp+(($temp/2)*$d))));
-#            $olds=$s;
-#            $s=run(0, $R0_, $R0ld_, $imp_);
-#            print "$t) tried R0 $R0_, R0 lockdown $R0ld_, Import/Day $imp_ - score : $s\n";
-#            if ($s<$bestscore) {
-#                print "Found one\n";
-##                $R0=$R0_; $R0ld=$R0ld_; $imp=$imp_;
-#                $bestscore=$s;
-#
-#                $k+=1;
-#            } else {
-#                ($olds>$s) and $d=-d;
-#            }
-#        }
-#    }
-#}
-print ",,,,,R0 $R0, R0 lockdown $R0ld, Import/Day $imp\n";      
-run(1, $R0, $R0ld, $imp);
-
-#1.98 0.71 4.88 ---- 173063
-#,,,,,R0 1.8, R0 lockdown 0.7427776, Import/Day 17.0768 149674.315915007
-
-#12) tried R0 1.80692584317642, R0 lockdown 0.741643034722493, Import/Day 16.2381411866168 - score : 145804.230759792
-#32) tried R0 1.88179722290443, R0 lockdown 0.72551877186819, Import/Day 9.83431022901707 - score : 146246.889368133
-#38) tried R0 1.8085232771414, R0 lockdown 0.742025386137526, Import/Day 16.1530326144683 - score : 143648.210378548
-#56) tried R0 1.83510069563299, R0 lockdown 0.733478820021408, Import/Day 13.511478613536 - score : 142742.515308867
+# R0 1.83510069563299, R0 lockdown 0.733478820021408, Import/Day 13.511478613536 - score : 142742.515308867
