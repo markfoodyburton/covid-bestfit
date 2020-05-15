@@ -24,4 +24,12 @@ Of note - this analysis estimates an R0 prior to lockdown of around 1.8, but a i
 * R0 lockdown = 0.733478820021408
 * Imported cases per day = 13.511478613536
 
-This perl script requires nothing much to run it (appart from perl) - but probably does require that you edit the script to do anything interesting.
+This perl script requires nothing much to run it (appart from perl) - but probably does require that you edit the script to do anything interesting. The script can be run in two ways:
+1. To find the best fit, simply run the script and wait ( a long time ). This will use the supplied data from france.csv.
+```bash
+  > ./covid.pl
+```
+2. To generate a csv file suitable for import into a spreadsheet for a specific set of numbers, run it thus:
+```bash
+  > ./covid.pl 1.83510069563299, 0.733478820021408, 13.511478613536
+```
