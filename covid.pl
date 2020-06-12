@@ -8,10 +8,10 @@ use threads::shared;
 
 
 
-my @facs_names=("Base R0 for virus", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Case reporting delay mean", "Case reporting delay variance", "Social Distancing effect", "Start day");
-my @facs_min=(1.5, 0.5, 1,  3.5,  4, 15, 3, 0.5, 0  );
-my @facs=    (1.8, 1,   10,  5,   5, 19, 4, 0.8, 1  );
-my @facs_max=(2.5, 2.5, 20,  7,   7, 25, 6, 1.2, 30  );
+my @facs_names=("Base R0 for virus", "Unreported", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Case reporting delay mean", "Case reporting delay variance", "Social Distancing effect",  "SD Intro day", "Start day");
+my @facs_min=(1.5, 0.1, 0.5, 1,   5,   5, 15, 3, 0.5, 50,  0  );
+my @facs=    (2.5, 0.9, 1,   10,  5,   5, 19, 4, 0.8, 100, 1  );
+my @facs_max=(5.0, 1.0, 2.5, 20,  5,   5, 25, 6, 1.2, 150, 30  );
 
 
 if (scalar @ARGV ==0) {
@@ -125,29 +125,29 @@ sub run {
     my @facs=@{$f_ref};
 
     my $R0_pop=$facs[0];
-    my $mob_fac=$facs[1];
-    my $importperday=$facs[2];
-
-    my $SD_introday=75;
-
-    #    my $day = Time::Piece->strptime("20191227", "%Y%m%d"); # day 0
-    my $day = Time::Piece->strptime("20200101", "%Y%m%d"); # day 0
-    $day+=60*60*24*$facs[8];
+    my $unreported=$facs[1]; # number of unreported cases 90%
+    # Spain has ~50M 5% have antibodies, 2.5M, reported number 250k
+    my $mob_fac=$facs[2];
+    my $importperday=$facs[3];
 
     my @casereports;
     my @infected;
 
-    my $infectday_m=$facs[3];  # syptoms appear ~ day 5, 1 day before is most infectious
-    my $infectday_v=$facs[4];
-
-    my $unreported=0.9; # number of unreported cases 90%
-    # Spain has ~50M 5% have antibodies, 2.5M, reported number 250k
+    my $infectday_m=$facs[4];  # syptoms appear ~ day 5, 1 day before is most infectious
+    my $infectday_v=$facs[5];
 
 
-    my $casedelay_m=$facs[5];
 
-    my $casedelay_v=$facs[6];
-    my $SD_effect=$facs[7];
+    my $casedelay_m=$facs[6];
+
+    my $casedelay_v=$facs[7];
+    my $SD_effect=$facs[8];
+    my $SD_introday=$facs[9];
+
+    #    my $day = Time::Piece->strptime("20191227", "%Y%m%d"); # day 0
+    my $day = Time::Piece->strptime("20200101", "%Y%m%d"); # day 0
+    $day+=60*60*24*$facs[10];
+
 
     my $cases=0;
     my $score=0;
@@ -155,9 +155,9 @@ sub run {
 
     my $oldcases=0;
     $verbose and print '"day","date","Estimated R0", "New infections","simulated cases","Actual cases", "Error", "Daily simulated delta"'."\n";
-    my $mobilityday=0;;
-    foreach my $d (1..200) {
-
+    my $mobilityday=0;
+  dayloop: foreach my $d (1..200) {
+        ($day > ($lastmobilityday +(60*60*24*25))) and last dayloop;
         my $err=0;
         if ($rcases{$day->ymd('-')}) {
             $err=($rcases{$day->ymd('-')} - $cases);
@@ -167,7 +167,7 @@ sub run {
             
         my $R0=$R0_pop;
         my $SDe=1;
-        ($d>=$SD_introday) and $SDe=$SD_effect;
+        ($d day !!! >=$SD_introday) and $SDe=$SD_effect;
         if ($day > $lastmobilityday) {
             $R0=$R0_pop * (((100+$lastmobility) * $mob_fac * $SDe)/100);#$R0;#_current;
         } else {
@@ -178,14 +178,19 @@ sub run {
             }
         }
 
-        foreach my $ii (1..100) {
-            my $i=101-$ii;
-            $infected[$i] = $infected[$i-1];
-            $casereports[$i] = $casereports[$i-1];
-        }
+#        foreach my $ii (1..100) {
+#            my $i=101-$ii;
+#            $infected[$i] = $infected[$i-1];
+#            $casereports[$i] = $casereports[$i-1];
+#        }
 
-        $infected[0]=0;
-        $casereports[0]=0;
+        unshift @infected, 0;
+        splice @infected, 100;
+        unshift @casereports, 0;
+        splice @casereports, 100;
+       
+#        $infected[0]=0;
+#        $casereports[0]=0;
 
         $infected[0]+=$importperday;
 
@@ -222,7 +227,7 @@ sub run {
 
 sub findlocalmin {
     my ($f_ref, $best) = @_;
-    my $dinit=10;
+    my $dinit=1000;
     limitloop: foreach my $i (1..10) {
         my $changes=0;
         foreach my $f (0..(scalar @{$f_ref} -1)) {
@@ -234,6 +239,7 @@ sub findlocalmin {
                     @{$f_ref}[$f] += @{$f_ref}[$f]*(1/$d);
                     my $s=run(0, $f_ref);
                     if ($s < $best) {
+#                        print "round $i D=$d Change=".($best-$s)." ".$facs_names[$f]."\n";
                         $changes+=($best-$s);
                         $best=$s;
                         $found+=1;
@@ -256,9 +262,10 @@ sub findlocalmin {
                 }
             }
         }
-        ($changes<10) and  last limitloop;
+#        print "round $i Changes=$changes\n";
+        ($changes<500) and  last limitloop;
 #        print "$best\n";
-        $dinit*=2;
+        $dinit*=5;
     }
     return $best;
 }
@@ -274,8 +281,9 @@ sub runandtests
 {
     my $temp=1;
     
+    my @test;
+#    @test=@facs;
     while ($testid < 95000) {# && $temp>0.1) {
-        my @test;
         {
             lock($lock);
             $testid+=1;
@@ -285,23 +293,28 @@ sub runandtests
             @test=@facs;
             my @current=@bestfacs;
             foreach my $i (0..(scalar @facs-1)) {
+#                if (rand(100000) > $testid/2) {
                 if ($facs_min[$i]==$facs_max[$i]) {
                     $test[$i]=$facs_max[$i];
                 } else {
                     my $max=$current[$i]+(($facs_max[$i]-$current[$i]) * $temp);
                     my $min=$current[$i]-(($current[$i]-$facs_min[$i]) * $temp);
+#                    my $max=$facs_max[$i];
+#                    my $min=$facs_min[$i];
                     $test[$i] = rand($max-$min)+$min;
                 }
+#                }
             }
         }
         my $locals=run(0, \@test);
         {
             if ($locals < $bestscore*50) {
                 my $s=findlocalmin(\@test, $locals);
+
                 foreach my $i (0..(scalar @facs)-1) {
                     printf "%-*f\t",length($facs_names[$i]), $test[$i];
                 }
-                print " Score= $s (".($locals/$s).") ";
+                printf " Score= %0d ", $s;
                 {
                     lock($lock);
                     if ($s<$bestscore) {
@@ -317,6 +330,28 @@ sub runandtests
             }
         }
     }
+}
+
+if (scalar @ARGV > 2 && $ARGV[0] eq "-b") {
+    shift @ARGV;
+    @facs=@ARGV;
+    @bestfacs  =@facs;
+    $bestscore =run(0, \@facs);
+    #    foreach my $i (1..10) {
+    my $old;
+    do {
+        $old=$bestscore;
+        $bestscore =findlocalmin(\@facs, $bestscore);
+        print join(' ',@facs_names),"\n";
+        print join(' ',@facs),"\n";
+        print " Score= $bestscore (".($bestscore-$old).")\n";
+    } while ($old!=$bestscore);
+#    }
+    $bestscore =run(1, \@facs);
+    print join(' ',@facs_names),"\n";
+    print join(' ',@facs),"\n";
+    print " Score= $bestscore\n";
+    exit(-1)
 }
 
 if (scalar @ARGV > 2 && $ARGV[0] ne "-c") {
@@ -346,4 +381,13 @@ foreach my $thr (@threads) {
 print join(' ',@facs_names),"\n";
 print join(' ',@bestfacs),"\n";
 print " Score= $bestscore\n";
+
+
+
+#1.88655952464931 1.29484178509565 10.711529000126 5.72632099401432 5.37355998352172 12.9839263340605 0.903301995852417 0.700699272597673 17.9150521022227  Score= 1008967.16566595
+#./covid.pl france 1.62315429220329 1.22322391786631 14.6589441000495 3.35628100970738 3.81210295741958 13.7014759097719 3.34789042931359 1.02949830353047 23.6918429689992 score = 983152.076326347
+
+#./covid.pl france 1.62315429220329 0.9 1.22322391786631 14.6589441000495 3.35628100970738 3.81210295741958 13.7014759097719 3.34789042931359 1.02949830353047 75.0 23.6918429689992 score = 983152.076326347
+#./covid.pl france 1.62315429220329 0.9 1.22322391786631 14.6560124578189 3.35628100970738 3.81210295741958 13.7055866265469 3.34153194906842 1.02918948492333 75.0 23.6918429689992  Score= 985718.6959901
+
 

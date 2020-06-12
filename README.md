@@ -31,12 +31,20 @@ Hence the factors that are 'adjutable' are
 - Case reporting delay variance,
 - Social Distancing effect,
   - Effect on R0 of social distancing etc.
+- Social Distance Inforduction day
+  - The mean day on which social distancing is introduced
+- Social Distancing Introduction day variance
 - Start day
 
 A modified simulated annealing approach is then used to find the best match using these variables.
 
 The result shows a relatively close match to the actual data.
-<img src="./output.svg">
+
+France:
+<img src="./output-fr.svg">
+
+UK:
+<img src="./output-uk.svg">
 
 To run the simulation first compile with your preffered compiler, e.g.
 ```bash
@@ -44,21 +52,27 @@ To run the simulation first compile with your preffered compiler, e.g.
 ```
 
 The program can be run in a few ways:
-1. To find the best fit, simply run and wait ( a long time ) selecting the country you wish. This will use the supplied data for that country in mobility-<country>.csv and <country>.csv
+``bash
+ > ./covid country [-c][-o file.csv][-n runs][-q] [factors]
+```
+To find the best fit, simply run and wait ( a long time ) selecting the country you wish. This will use the supplied data for that country in mobility-<country>.csv and <country>.csv
 ```bash
   > ./covid france
 ```
-The final output will provide the best guess factors to use to generate a plot of the epidemic
   
-2. To generate a csv file suitable for import into a spreadsheet for a specific set of numbers, run it thus:
+To generate a csv file suitable for import into a spreadsheet for a specific set of numbers, run it thus:
 ```bash
-  > ./covid france 2.4207148 0.805779693 1.02442175 3.76362184 5 5 12.3217681 1.50674125 0.695714995 71.3405724 21.2957611 > numbers-fr.csv
+  > ./covid france -o numbers-fr.csv 2.4207148 0.805779693 1.02442175 3.76362184 5 5 12.3217681 1.50674125 0.695714995 71.3405724 21.2957611 
 ```
 
-3. To restart the annealing process you can add the '-c' flag, e.g.:
+To restart the annealing process you can add the '-c' flag, e.g.:
 ```bash
-  > ./covid france -c 2.4207148 0.805779693 1.02442175 3.76362184 5 5 12.3217681 1.50674125 0.695714995 71.3405724 21.2957611 > numbers-fr.csv
+  > ./covid france -c 2.4207148 0.805779693 1.02442175 3.76362184 5 5 12.3217681 1.50674125 0.695714995 71.3405724 21.2957611
 ```
 This can be helpful to start the process from a reasonabl position, given new data. It will also not only output the best guess, but also the 10 most promising alternatives.
+
+To set the number of runs to try, use -n <number> (default 50000)
+
+If you hit ^C during a run, then the program will finish the current runs and output the current best result.
 
 

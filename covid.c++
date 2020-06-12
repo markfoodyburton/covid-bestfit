@@ -1,5 +1,6 @@
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <vector>
 #include <time.h>
 #include <ctime>
@@ -10,27 +11,29 @@
 #include <thread>
 #include <mutex>
 #include <map>
+#include <getopt.h>
+#include <signal.h>
 
 using namespace std;
 
 
-vector<std::string> facs_names = { "Base R0 for virus", "Unreported", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Cases reporting delay mean", "Case reporting delay variance", "Social Distancing effect",  "SD Intro day", "Start day" };
-vector<double> facs_min = {1.5, 0.1, 0.5, 1,   5,   5, 15, 3, 0.5, 50,  0  };
-vector<double> facs_nom = {2.5, 0.9, 1,   10,  5,   5, 19, 4, 0.8, 100, 1  };
-vector<double> facs_max=  {5.0, 1.0, 2.5, 20,  5,   5, 25, 6, 1.2, 150, 30  };
+vector<std::string> facs_names = { "Base R0 for virus", "Unreported", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Cases reporting delay mean", "Case reporting delay variance", "Social Distancing effect",  "SD Intro day",  "SD Intro day var", "Start day" };
+vector<double> facs_min = {1.5, 0.5, 0.5, 5,   1,    4,  5, 1, 0.6, 50,  10, 0  };
+vector<double> facs_nom = {2.5, 0.9, 1,   10,  5,    6,  19, 4, 0.7, 75, 10, 1  };
+vector<double> facs_max=  {5.0, 1.0, 1.5, 15,  10,   8,  25, 6, 0.9, 150,10, 30  };
 
-void printfacsnames() 
+void printfacsnames(ostream &outfile=cout) 
 {
     for (const auto& e : facs_names) {
-        cout << setw(max(e.length()+2,14ul)) << e;
+        outfile << setw(max(e.length()+2,14ul)) << e;
     }
-    cout << endl;
+    outfile << endl;
 }
 
-void printfacs(vector<double> &facs) 
+void printfacs(vector<double> &facs, ostream &outfile=cout) 
 {
     for (int f=0; f<facs.size(); f++) {
-        cout << setprecision(9) << setw(max(facs_names[f].length()+2,14ul)) << facs[f];
+        outfile << setprecision(9) << setw(max(facs_names[f].length()+2,14ul)) << facs[f];
     }
 }
 
@@ -40,6 +43,7 @@ time_t day0=1577876400;
 int day0_dow=3;
 #define MAXDAYS 500
 
+bool running=true;
 
 int rcases[MAXDAYS]={0};
 double mobility[MAXDAYS]={0};
@@ -145,9 +149,12 @@ double gaussian (double x, double mean, double var)
 }
 
 mutex mtx;
-map<double,vector<double>> bestruns;
+map<double,pair<double,vector<double>>> bestruns;
+vector<double> bestfacs;
+double bestscore;
+double bestcases;
 
-double run (bool verbose, vector<double> &facs, bool record=false)
+double run (bool verbose, vector<double> &facs, bool record=false, ostream &outfile=cout)
 {
 
     double R0_pop=facs[0];
@@ -166,10 +173,11 @@ double run (bool verbose, vector<double> &facs, bool record=false)
     double casedelay_v=facs[7];
     double SD_effect=facs[8];
     double SD_introday=facs[9];
+    double SD_introday_var=facs[10];
 
     //    day = Time::Piece->strptime("20191227", "%Y%m%d"); // day 0
 
-    int startday=(int)facs[10];
+    int startday=(int)facs[11];
 
     double casereports[100]={0};
     double infected[100]={0};
@@ -179,21 +187,27 @@ double run (bool verbose, vector<double> &facs, bool record=false)
 
     double oldcases=0;
 
+    int future=40;
+    
+
     vector<double> cpd(record?MAXDAYS:0);
     if (record) {
         fill(cpd.begin(), cpd.end(), 0);
     }
     
-    if (verbose) cout << "\"day\",\"date\",\"Estimated R0\", \"New infections\",\"best simulated cases\",\"Actual cases\", \"Actual delta\", \"Error\", \"Daily simulated delta\", \"Other simulated cases\"\n";
+    if (verbose) outfile << "\"day\",\"date\",\"Estimated R0\", \"New infections\",\"best simulated cases\",\"Actual cases\", \"Actual delta\", \"Error\", \"Daily simulated delta\", \"Other simulated cases\"\n";
     
-    for (int d=startday; d<lastmobilityday+25; d++) {
+    for (int d=startday; d<lastmobilityday+future; d++) {
         
 
             
         double R0=R0_pop;
         double SDe=1.0;
         /* This should be fixed*/
-        if (d-startday+1>=SD_introday) { SDe=SD_effect; }
+//        if (d-startday+1>=SD_introday) { SDe=SD_effect; }
+        double f=cdf(d-startday+1, SD_introday, SD_introday_var);
+        SDe=(f*SD_effect) + (1.0-f);
+        
         if (d >= lastmobilityday) {
             R0=R0_pop * (((100.0+lastmobility) * mob_fac * SDe)/100.0);//R0;//_current;
         } else {
@@ -234,40 +248,49 @@ double run (bool verbose, vector<double> &facs, bool record=false)
         double err=0;
         if (rcases[d]) {
             err=(rcases[d] - cases);
-            score+=(err*err)/(200.0-(d-startday+1));
+            if (d>lastmobilityday-7) {
+                err*=2;
+            }
+            score+=(err*err)/((lastmobilityday+future+1)-d);
         }
         if (record) cpd[d]=cases;
         if (verbose) {
-            cout << d-startday+1<<", "<<daytstr(d)<<", "<<R0<<", "<<infected[di]<<", "<<cases<<", "
+            outfile << d-startday+1<<", "<<daytstr(d)<<", "<<R0<<", "<<infected[di]<<", "<<cases<<", "
                  <<(rcases[d]?to_string(rcases[d]):" ")<<", "
                  <<(rcases[d]&&rcases[d-1]?to_string(rcases[d]-rcases[d-1]):" ")
                  <<", "<<err<<", "<<(cases-oldcases);
             for (auto itr = bestruns.crbegin(); itr != bestruns.crend(); ++itr) { 
-                if (itr->second.size()>d) cout << ", " << itr->second[d]; 
+                if (itr->second.second.size()>d) outfile << ", " << itr->second.second[d]; 
             } 
-            cout <<"\n";
+            outfile <<"\n";
         }
         
         oldcases=cases;
         // day +1
     }
 
-    if (record) {
-        unique_lock<mutex> lck(mtx);
-        bestruns.insert(make_pair(score,cpd));
-        while (bestruns.size()>10) {
-            bestruns.erase(--bestruns.end());
+    if (record && (abs(bestscore-score)/bestscore < 1)) {
+        if (score < bestscore) {
+            bestcases=cases;
+//            bestruns.clear();
+        } else {   
+            unique_lock<mutex> lck(mtx);
+            double s= -(abs(bestcases-cases)/abs(bestscore-score));
+            bestruns.insert(make_pair(s,make_pair(score,cpd)));
+            while (bestruns.size()>10) {
+                bestruns.erase(--bestruns.end());
+            }
         }
     }
   
     
     
     if (verbose) {
-        cout<< "Score: "<< score<<"   , , , , , , , , ";
+        outfile<< "Score: "<< score<<"   , , , , , , , , ";
         for (auto itr = bestruns.crbegin(); itr != bestruns.crend(); ++itr) { 
-            cout << ", \"score: " << itr->first << " \"";
+            outfile << ", \"score: " << itr->second.first << " \"";
         } 
-        cout <<"\n";
+        outfile <<"\n";
     }
     
     return score;
@@ -286,6 +309,9 @@ double findlocalmin (vector<double> &facs, double best)
                 while (abs(d)<=10000 && found<10) {
                     double old=facs[f];
                     facs[f] += facs[f]*(1.0/(double)d);
+                    if (facs[f]<facs_min[f]) facs[f]=facs_min[f];
+                    if (facs[f]>facs_max[f]) facs[f]=facs_max[f];
+                    
                     double s=run(0, facs);
                     if (s < best) {
 //                        print "round i D=d Change=".(best-s)." ".facs_names[f]."\n";
@@ -306,6 +332,7 @@ double findlocalmin (vector<double> &facs, double best)
                         } else {
                             found=0;
                             d=abs(d*10);
+                            if (facs[f]==facs_max[f]) d*=-1;
                         }
                     }
                 }
@@ -322,39 +349,37 @@ double findlocalmin (vector<double> &facs, double best)
 
 double better(bool verbose, vector<double> &test)
 {
-    double bestscore=run(0, test);
+    double bests=run(0, test);
     double old;
     if (verbose) printfacsnames();
     do {
-        old=bestscore;
-        bestscore =findlocalmin(test, bestscore);
+        old=bests;
+        bests =findlocalmin(test, bests);
         if (verbose) {
             printfacs(test);
-            cout << " Score= "<<bestscore<<" ("<<(bestscore-old)<<")\n";
+            cout << " Score= "<<bests<<" ("<<(bests-old)<<")\n";
         }
-    } while (old!=bestscore);
+    } while (old!=bests);
 
     if (verbose) {
-        bestscore =run(true, test);
+        bests =run(true, test);
 //        print join(' ',@facs_names),"\n";
 //        print join(' ',@facs),"\n";
         printfacsnames();
         printfacs(test);
-        cout << "\n Score= "<<bestscore<<"\n";
+        cout << "\n Score= "<<bests<<"\n";
     }
-    return bestscore;
+    return bests;
 }
 
-vector<double> bestfacs;
-double bestscore;
 int testid=0;
-void runandtests(bool verbose=true)
+void runandtests(bool verbose=true, int runs=10000)
 {
     double temp=1;
     
     vector<double> test=facs_nom;
 //    @test=@facs;
-    while (testid < 95000) {// && temp>0.1) {
+    while (testid < runs && running) {// && temp>0.1) {
         {
             unique_lock<mutex> lck(mtx);
             testid+=1;
@@ -362,7 +387,7 @@ void runandtests(bool verbose=true)
                 printf("\r%7d ",testid);
                 cout << flush;
             }
-            temp=(1 - testid/100000 );
+            temp=(1.0 - (double)testid/((double)runs*1.1) );
             test=facs_nom;
             vector<double> current=bestfacs;
             for (int i=0; i<facs_nom.size(); i++) {
@@ -393,7 +418,7 @@ void runandtests(bool verbose=true)
                     
                     if (verbose) {
                         printfacs(test);
-                        cout << " Score="<<s<<" ";
+                        cout << " Score="<<s<<" ("<<(locals/s)<<") ";
                     }
                     
 
@@ -412,6 +437,10 @@ void runandtests(bool verbose=true)
     }
 }
 
+void intHandler(int dummy) {
+    running=false;
+}
+
 vector<double> argvtv(int start, int argc, char* argv[]) 
 {
     vector<double> result;
@@ -425,6 +454,8 @@ int main(int argc, char *argv[])
 {
     std::srand(std::time(0));
 
+    signal(SIGINT, intHandler);
+
     cout << setprecision(9);
     
     {
@@ -436,11 +467,50 @@ int main(int argc, char *argv[])
         day0_dow=tm.tm_wday;
     }
     
-    if (argc ==1) {
-        cout << "Usage :" << argv[0] << " country [-c][-b] [factors]\n"; exit(-1);
+
+    bool cont=false;
+    bool facsprovided=false;
+    ofstream outfile;
+    int runs=10000;
+    bool verbose=true;
+    string country="unknown";
+    int c;
+    do {
+        while ((c=getopt(argc,argv,"co:n:q")) != -1)
+        {
+            switch (c) {
+                case 'c':
+                    cont=true;
+                    break;
+                case 'o':
+                    outfile.open(optarg);
+                    outfile << setprecision(9);
+                    break;
+                case 'n':
+                    runs=stoi(optarg);
+                    break;
+                case 'q':
+                verbose=false;
+                break;
+            }
+        }
+        if (country=="unknown") {
+            if (optind < argc) {
+                country=argv[optind++];
+                continue;
+            } else {
+                cout << "Usage :" << argv[0] << " country [-c][-o file.csv][-n runs][-q] [factors]\n"; exit(-1);
+            }
+        } else {
+            break;
+        }
+    } while (true);
+    
+    if (optind+1 < argc) {
+        facsprovided=true;
+        facs_nom=argvtv(optind,argc,argv);
     }
     
-    string country=argv[1];
 
     int casesperday[8]={0};
     ifstream myfile (country+".csv");
@@ -490,28 +560,15 @@ int main(int argc, char *argv[])
         cout<< "Cant find mobility-"+country+".csv\n"; exit(-1);
     }
 
-    bool verbose=true;
-
-    if (argc > 3 && strcmp(argv[2], "-b")==0) {
-        
-        vector<double> test=argvtv(3,argc,argv);
-        better(true, test);
+    if (!cont && facsprovided) {
+        if (outfile.is_open()) {
+            run(true,facs_nom,false,outfile);
+            outfile.close();
+        } else {
+            run(true,facs_nom);
+        }
         exit(-1);
     }
-
-    if (argc > 3 && strcmp(argv[2], "-c")!=0) {
-        vector<double> test=argvtv(2,argc,argv);
-        run(true, test);
-        exit(-1);
-    }
-
-    
-    if (argc > 3 && strcmp(argv[2], "-c")==0) {
-        facs_nom=argvtv(3,argc,argv);
-        verbose=false;
-//        cout<< "Continuing...\n";
-    }
-
     bestfacs  =facs_nom;
     bestscore =run(false, facs_nom);
 
@@ -526,7 +583,7 @@ int main(int argc, char *argv[])
         
     vector<thread> threads;
     for (int t=0;t<std::thread::hardware_concurrency();t++) {
-        threads.push_back(thread(runandtests,verbose));
+        threads.push_back(thread(runandtests,verbose,runs));
     }
     while (!threads.empty()) {
         threads.back().join();
@@ -535,22 +592,13 @@ int main(int argc, char *argv[])
 
     double score=better(verbose, bestfacs);
 
-    if (!verbose) {
-        bestscore =run(true, bestfacs);
-        printfacsnames();
-        printfacs(bestfacs);
+    if (outfile.is_open()) {
+        bestscore =run(true, bestfacs, false, outfile);
+        printfacsnames(outfile);
+        printfacs(bestfacs,outfile);
+        outfile.close();
     }
+    
 }
-
-
-
-
-//1.88655952464931 1.29484178509565 10.711529000126 5.72632099401432 5.37355998352172 12.9839263340605 0.903301995852417 0.700699272597673 17.9150521022227  Score= 1008967.16566595
-//./covid.pl france 1.62315429220329 1.22322391786631 14.6589441000495 3.35628100970738 3.81210295741958 13.7014759097719 3.34789042931359 1.02949830353047 23.6918429689992 score = 983152.076326347
-
-//./covid.pl france 1.62315429220329 0.9 1.22322391786631 14.6589441000495 3.35628100970738 3.81210295741958 13.7014759097719 3.34789042931359 1.02949830353047 75.0 23.6918429689992 score = 983152.076326347
-//./covid.pl france 1.62315429220329 0.9 1.22322391786631 14.6560124578189 3.35628100970738 3.81210295741958 13.7055866265469 3.34153194906842 1.02918948492333 75.0 23.6918429689992  Score= 985718.6959901
-
-
 
 
