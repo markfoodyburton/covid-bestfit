@@ -19,8 +19,8 @@ using namespace std;
 
 vector<std::string> facs_names = { "Base R0 for virus", "Unreported", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Cases reporting delay mean", "Case reporting delay variance", "Social Distancing effect",  "SD Intro day",  "SD Intro day var", "Start day" };
 vector<double> facs_min = {1.5, 0.5, 0.5, 5,   1,    4,  5, 1, 0.6, 50,  10, 0  };
-vector<double> facs_nom = {2.5, 0.9, 1,   10,  5,    6,  19, 4, 0.7, 75, 10, 1  };
-vector<double> facs_max=  {5.0, 1.0, 1.5, 15,  10,   8,  25, 6, 0.9, 150,10, 30  };
+vector<double> facs_nom = {2.5, 0.8, 1,   10,  5,    6,  19, 4, 0.7, 75, 10, 1  };
+vector<double> facs_max=  {5.0, 0.9, 1.5, 15,  10,   8,  25, 6, 0.9, 150,10, 30  };
 
 void printfacsnames(ostream &outfile=cout) 
 {
@@ -38,7 +38,7 @@ void printfacs(vector<double> &facs, ostream &outfile=cout)
 }
 
 
-#define DAY0 "2020-01-01 12:00"
+#define DAY0 "2019-12-30 12:00"
 time_t day0=1577876400;
 int day0_dow=3;
 #define MAXDAYS 500
@@ -49,6 +49,7 @@ int rcases[MAXDAYS]={0};
 double mobility[MAXDAYS]={0};
 double lastmobility=0;
 int lastmobilityday=0;
+int lastcaseday=0;
 int weekendday=0;
 double weekendeffect=0;
 
@@ -88,7 +89,7 @@ vector<string> split (const string &s, char delim) {
     vector<string> result;
     stringstream ss (s);
     string item;
-    char chars[] = ", \t\n";
+    char chars[] = ",\n";
 
     while (getline (ss, item, delim)) {
         for (unsigned int i = 0; i < strlen(chars); ++i)
@@ -246,12 +247,15 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
             casereports[(di+i)%100]-=cr;
         }
         double err=0;
-        if (rcases[d]) {
+        if (d<lastcaseday && rcases[d]) {
             err=(rcases[d] - cases);
-            if (d>lastmobilityday-7) {
+            if (d>lastcaseday-7) {
                 err*=2;
+            } else {
+                err=min(abs(err),cases/2.0);
             }
-            score+=(err*err)/((lastmobilityday+future+1)-d);
+            
+            score+=(err*err)/((lastcaseday+1)-d);
         }
         if (record) cpd[d]=cases;
         if (verbose) {
@@ -260,7 +264,11 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
                  <<(rcases[d]&&rcases[d-1]?to_string(rcases[d]-rcases[d-1]):" ")
                  <<", "<<err<<", "<<(cases-oldcases);
             for (auto itr = bestruns.crbegin(); itr != bestruns.crend(); ++itr) { 
-                if (itr->second.second.size()>d) outfile << ", " << itr->second.second[d]; 
+                if (itr->second.second.size()>d) {
+                    if (itr->second.second[d]>(cases*1.5)) outfile <<", ";
+                    else outfile << ", " << itr->second.second[d];
+                }
+                
             } 
             outfile <<"\n";
         }
@@ -373,7 +381,7 @@ double better(bool verbose, vector<double> &test)
 }
 
 int testid=0;
-void runandtests(bool verbose=true, int runs=10000)
+void runandtests(bool verbose=true, int runs=10000, int ignoreAbove=100)
 {
     double temp=1;
     
@@ -409,7 +417,7 @@ void runandtests(bool verbose=true, int runs=10000)
         }
         double locals=run(0, test);
         {
-            if (locals < bestscore*100) {
+            if (locals < bestscore*ignoreAbove) {
 //                double s=findlocalmin(test, locals);
                 double s=better(false, test);
                 run(false, test, true); // remember the scores !
@@ -418,7 +426,7 @@ void runandtests(bool verbose=true, int runs=10000)
                     
                     if (verbose) {
                         printfacs(test);
-                        cout << " Score="<<s<<" ("<<(locals/s)<<") ";
+                         cout << " Score="<<setw(12)<<s<<" ("<<(locals/s)<<") ";
                     }
                     
 
@@ -468,6 +476,8 @@ int main(int argc, char *argv[])
     }
     
 
+    int ignoreAbove=100;
+    int stopday=MAXDAYS; // stop reading cases after this day
     bool cont=false;
     bool facsprovided=false;
     ofstream outfile;
@@ -476,7 +486,7 @@ int main(int argc, char *argv[])
     string country="unknown";
     int c;
     do {
-        while ((c=getopt(argc,argv,"co:n:q")) != -1)
+        while ((c=getopt(argc,argv,"co:n:qs:i:")) != -1)
         {
             switch (c) {
                 case 'c':
@@ -490,8 +500,14 @@ int main(int argc, char *argv[])
                     runs=stoi(optarg);
                     break;
                 case 'q':
-                verbose=false;
-                break;
+                    verbose=false;
+                    break;
+                case 's':
+                    stopday=strtday(optarg);
+                    break;
+                case 'i':
+                    ignoreAbove=stoi(optarg);
+                    break;
             }
         }
         if (country=="unknown") {
@@ -511,7 +527,7 @@ int main(int argc, char *argv[])
         facs_nom=argvtv(optind,argc,argv);
     }
     
-
+/*
     int casesperday[8]={0};
     ifstream myfile (country+".csv");
     int oldcases=0;
@@ -533,7 +549,41 @@ int main(int argc, char *argv[])
     } else {
         cout << "Unable to open "+country+".csv\n"; exit(-1);
     }
+*/
+    int casesperday[8]={0};
+    ifstream myfile ("owid-covid-data.csv");
+    int oldcases=0;
+    int found=0;
+    if (myfile.is_open()) {
+        string line;
+        while(getline(myfile,line))
+        {
+            vector<string> fields = split(line,',');
+            if (fields[2]==country) {
+                int d=strtday(fields[3]);
+                if (d>=0 && d<MAXDAYS) {
+                    int cases=stoi(fields[4]);
+                    rcases[d]=cases;
+                    casesperday[dow(d)]+=cases-oldcases;
+                    oldcases=cases;
+                    lastcaseday=d;
+                    found++;
+                }
+                
+            }
+            
+        }
+        myfile.close();
+    } else {
+        cout << "Unable to open owid-covid-data.csv\n"; exit(-1);
+    }
+    if (!found) {
+        cout << "Unable to find country "<<country<<" in owid-covid-data.csv\n"; exit(-1);
+    }
 
+    if (lastcaseday>stopday) lastcaseday=stopday;
+    
+    
     int total=0;
     for (int d=0;d<7;d++) {
         if (casesperday[d] < casesperday[weekendday]) weekendday=d;
@@ -541,7 +591,7 @@ int main(int argc, char *argv[])
     }
     weekendeffect=(double)(casesperday[weekendday])/((double)total/7.0);
     
-    ifstream data ("mobility-"+country+".csv");
+/*    ifstream data ("mobility-"+country+".csv");
     if (data.is_open()) {
         string line;
         while (getline(data,line)) {
@@ -559,6 +609,32 @@ int main(int argc, char *argv[])
     } else {
         cout<< "Cant find mobility-"+country+".csv\n"; exit(-1);
     }
+*/
+    found=0;
+    ifstream data ("Global_Mobility_Report.csv");
+    if (data.is_open()) {
+        string line;
+        while (getline(data,line)) {
+            vector<string> fields = split(line,',');
+            if (fields[1]==country && fields[2]=="") {
+                int d=strtday(fields[6]);
+                if (d>=0) {
+                    double m=(double)(stoi(fields[7])+stoi(fields[8])+stoi(fields[9])+stoi(fields[10])+stoi(fields[11])-stoi(fields[12]))/6.0;
+                    mobility[d]=m;
+                    lastmobility=((lastmobility*2.0)+m)/3.0;
+                    lastmobilityday=d;
+                    found++;
+                }
+            }
+        }
+        data.close();
+    } else {
+        cout<< "Cant find Global_Mobility_Report.csv\n"; exit(-1);
+    }
+    if (!found) {
+        cout << "Unable to find country "<<country<<" in Global_Mobility_Report.csv\n"; exit(-1);
+    }
+
 
     if (!cont && facsprovided) {
         if (outfile.is_open()) {
@@ -583,7 +659,7 @@ int main(int argc, char *argv[])
         
     vector<thread> threads;
     for (int t=0;t<std::thread::hardware_concurrency();t++) {
-        threads.push_back(thread(runandtests,verbose,runs));
+        threads.push_back(thread(runandtests,verbose,runs, ignoreAbove));
     }
     while (!threads.empty()) {
         threads.back().join();
