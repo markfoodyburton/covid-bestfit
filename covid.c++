@@ -617,9 +617,9 @@ int main(int argc, char *argv[])
         while (getline(data,line)) {
             vector<string> fields = split(line,',');
             if (fields[1]==country && fields[2]=="") {
-                int d=strtday(fields[6]);
+                int d=strtday(fields[7]);
                 if (d>=0) {
-                    double m=(double)(stoi(fields[7])+stoi(fields[8])+stoi(fields[9])+stoi(fields[10])+stoi(fields[11])-stoi(fields[12]))/6.0;
+                    double m=(double)(stoi(fields[8])+stoi(fields[9])+stoi(fields[10])+stoi(fields[11])+stoi(fields[12])-stoi(fields[13]))/6.0;
                     mobility[d]=m;
                     lastmobility=((lastmobility*2.0)+m)/3.0;
                     lastmobilityday=d;
