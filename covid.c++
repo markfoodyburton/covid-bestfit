@@ -198,7 +198,7 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
     
     if (verbose) outfile << "\"day\",\"date\",\"Estimated R0\", \"New infections\",\"best simulated cases\",\"Actual cases\", \"Actual delta\", \"Error\", \"Daily simulated delta\", \"Other simulated cases\"\n";
     
-    for (int d=startday; d<lastmobilityday+future; d++) {
+    for (int d=startday; d<lastmobilityday+future && d<lastcaseday+future; d++) {
         
 
             
@@ -260,7 +260,7 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
         if (record) cpd[d]=cases;
         if (verbose) {
             outfile << d-startday+1<<", "<<daytstr(d)<<", "<<R0<<", "<<infected[di]<<", "<<cases<<", "
-                 <<(rcases[d]?to_string(rcases[d]):" ")<<", "
+                    <<((d<lastcaseday) && rcases[d]?to_string(rcases[d]):" ")<<", "
                  <<(rcases[d]&&rcases[d-1]?to_string(rcases[d]-rcases[d-1]):" ")
                  <<", "<<err<<", "<<(cases-oldcases);
             for (auto itr = bestruns.crbegin(); itr != bestruns.crend(); ++itr) { 
@@ -503,7 +503,8 @@ int main(int argc, char *argv[])
                     verbose=false;
                     break;
                 case 's':
-                    stopday=strtday(optarg);
+//                    stopday=strtday(optarg);
+                    stopday=stoi(optarg);
                     break;
                 case 'i':
                     ignoreAbove=stoi(optarg);
@@ -635,6 +636,13 @@ int main(int argc, char *argv[])
         cout << "Unable to find country "<<country<<" in Global_Mobility_Report.csv\n"; exit(-1);
     }
 
+    vector<double> cpd(MAXDAYS);
+    fill(cpd.begin(), cpd.end(), 0);
+    for (int i=0; i<10; i++) 
+    {
+        bestruns.insert(make_pair(0,make_pair(0,cpd)));
+    }
+    
 
     if (!cont && facsprovided) {
         if (outfile.is_open()) {
