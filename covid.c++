@@ -20,7 +20,7 @@ using namespace std;
 vector<std::string> facs_names = { "Base R0 for virus", "Unreported", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Cases reporting delay mean", "Case reporting delay variance", "Social Distancing effect",  "SD Intro day",  "SD Intro day var", "Start day" };
 vector<double> facs_min = {1.5, 0.5, 0.5, 5,   1,    4,  5, 1, 0.6, 50,  10, 0  };
 vector<double> facs_nom = {2.5, 0.8, 1,   10,  5,    6,  19, 4, 0.7, 75, 10, 1  };
-vector<double> facs_max=  {5.0, 0.9, 1.5, 15,  10,   8,  25, 6, 0.9, 150,10, 30  };
+vector<double> facs_max=  {5.0, 0.99, 1.5, 15,  10,   8,  25, 6, 0.9, 150,10, 30  };
 
 void printfacsnames(ostream &outfile=cout) 
 {
@@ -46,6 +46,7 @@ int day0_dow=3;
 bool running=true;
 
 int rcases[MAXDAYS]={0};
+double tests[MAXDAYS]={0};
 double mobility[MAXDAYS]={0};
 double lastmobility=0;
 int lastmobilityday=0;
@@ -199,8 +200,14 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
     if (verbose) outfile << "\"day\",\"date\",\"Estimated R0\", \"New infections\",\"best simulated cases\",\"Actual cases\", \"Actual delta\", \"Error\", \"Daily simulated delta\", \"Other simulated cases\"\n";
     
     for (int d=startday; d<lastmobilityday+future && d<lastcaseday+future; d++) {
-        
-
+        // The WHO recommends 30 tests per case. Lets be generious and assume at
+        // 30 we report 100% of the cases (e.g. enough people come forward for
+        // tests, enough are tracked, etc...
+        if (tests[d] > 0) {
+            if (tests[d]>30) unreported*=0.9;
+            else unreported=((unreported*9)+(1-(tests[d]/30)))/10.0;
+        }
+//        if (verbose) cout << d<<" tests="<<tests[d]<<"unreported = "<<unreported<<"\n";
             
         double R0=R0_pop;
         double SDe=1.0;
@@ -571,6 +578,7 @@ int main(int argc, char *argv[])
                     found++;
                 }
                 
+                if (fields[22]!="") tests[d]=stof(fields[22]); // tests per case
             }
             
         }
