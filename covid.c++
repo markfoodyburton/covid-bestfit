@@ -17,10 +17,20 @@
 using namespace std;
 
 
-vector<std::string> facs_names = { "Base R0 for virus", "Unreported", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Cases reporting delay mean", "Case reporting delay variance", "Social Distancing effect",  "SD Intro day",  "SD Intro day var", "Start day" };
-vector<double> facs_min = {1.5, 0.5, 0.5, 5,   1,    4,  5, 1, 0.6, 50,  10, 0  };
-vector<double> facs_nom = {2.5, 0.8, 1,   10,  5,    6,  19, 4, 0.7, 75, 10, 1  };
-vector<double> facs_max=  {5.0, 0.99, 1.5, 15,  10,   8,  25, 6, 0.9, 150,10, 30  };
+vector<std::string> facs_names = { "Base R0 for virus", "Unreported", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Cases reporting delay mean", "Case reporting delay variance", "Social Distancing effect",  "SD Intro day",  "SD Intro day var", "Start day",
+"retail_and_recreation","grocery_and_pharmacy","parks","transit_stations","workplaces","residential"
+    };
+
+
+vector<double> facs_min = {2.5, 0.6, 0.6, 9.5,1.5,    4, 10,   0,   0.5, 115, 20, 25 , -10,-10,-10,-10,-10,-10 };
+vector<double> facs_nom = {3.0, 0.8, 0.7, 9.5,  2,    5, 15,   1,   0.7, 135, 30, 25 , 1,-1,1,1,1,1 };
+vector<double> facs_max=  {3.5, 0.95, 0.8, 9.5,  3,    6, 25,   5,   0.9, 145, 40, 25 , 10,10,10,10,10,10 };
+//vector<double> facs_min = {2.5, 0.6, 0.6, 9.5,1.5,    5, 15,   1,   0.5, 135, 30, 25 , -10,-10,-10,-10,-10,-10 };
+//vector<double> facs_nom = {3.0, 0.8, 0.7, 9.5,  2,    5, 15,   1,   0.7, 135, 30, 25 , 1,-1,1,1,1,1};
+//vector<double> facs_max=  {3.5, 0.9, 0.8, 9.5,  3,    5, 15,   1,   0.9, 135, 30, 25 , 10,10,10,10,10,10};
+//vector<double> facs_min = {1.5, 0.5, 0.5, 5,   1,    4,  5,   1,   0.5, 50,  1, 0  };
+//vector<double> facs_nom = {2.5, 0.8, 1,   10,  5,    6,  19, 6, 0.7, 75, 20, 1  };
+//vector<double> facs_max=  {5.0, 0.99, 1.5, 15,  10,   12,  25, 10, 0.9, 150,30, 30  };
 
 void printfacsnames(ostream &outfile=cout) 
 {
@@ -47,13 +57,14 @@ bool running=true;
 
 int rcases[MAXDAYS]={0};
 double tests[MAXDAYS]={0};
-double mobility[MAXDAYS]={0};
-double lastmobility=0;
+vector<int> mobility[MAXDAYS];
+double temps[MAXDAYS]={0.0};
+//double lastmobility=0;
 int lastmobilityday=0;
 int lastcaseday=0;
 int weekendday=0;
 double weekendeffect=0;
-
+int first_sp_pos_d=0;
 
 int strtday(string str)
 {
@@ -190,14 +201,15 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
     double oldcases=0;
 
     int future=40;
-    
+
+    double lastmobility=0;
 
     vector<double> cpd(record?MAXDAYS:0);
     if (record) {
         fill(cpd.begin(), cpd.end(), 0);
     }
     
-    if (verbose) outfile << "\"day\",\"date\",\"Estimated R0\", \"New infections\",\"best simulated cases\",\"Actual cases\", \"Actual delta\", \"Error\", \"Daily simulated delta\", \"Other simulated cases\"\n";
+    if (verbose) outfile << "\"day\",\"date\",\"Estimated R0\", \"Social Distance Effect\", \"Mobility\", \"New infections\",\"best simulated cases\",\"Actual cases\", \"Actual delta\", \"Error\", \"Daily simulated delta\", \"Other simulated cases\"\n";
     
     for (int d=startday; d<lastmobilityday+future && d<lastcaseday+future; d++) {
         // The WHO recommends 30 tests per case. Lets be generious and assume at
@@ -215,16 +227,21 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
 //        if (d-startday+1>=SD_introday) { SDe=SD_effect; }
         double f=cdf(d-startday+1, SD_introday, SD_introday_var);
         SDe=(f*SD_effect) + (1.0-f);
-        
+
+        double mob=0.0;
         if (d >= lastmobilityday) {
-            R0=R0_pop * (((100.0+lastmobility) * mob_fac * SDe)/100.0);//R0;//_current;
+            mob=lastmobility;
         } else {
-            if (mobility[d]) {
-                R0=R0_pop * (((100.0+mobility[d]) * mob_fac * SDe)/100.0);
-            } else {
-                R0=R0_pop * (((100.0) * mob_fac * SDe)/100.0);
+            if (mobility[d].size()) {
+                for (int i=0;i<mobility[d].size();i++) {
+                    mob+=mobility[d][i]*facs[12+i];
+                }
             }
+            lastmobility=((lastmobility*2.0)+mob)/3.0;
+
         }
+
+        R0=R0_pop * (((100.0+mob) * mob_fac * SDe)/100.0);
 
 
         int di=99-(d%100);
@@ -242,10 +259,12 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
             casereports[di] += nc*(1-unreported);
 
             double cr;
-            if (i<casedelay_m) {
-                cr=casereports[(di+i)%100]*gaussian(i,casedelay_m, casedelay_v);
+            double cd_m=casedelay_m;
+            if (first_sp_pos_d && d>first_sp_pos_d) cd_m=0;
+            if (i<cd_m) {
+                cr=casereports[(di+i)%100]*gaussian(i,cd_m, casedelay_v);
             } else {
-                cr=casereports[(di+i)%100]*gaussian(casedelay_m,casedelay_m, casedelay_v);
+                cr=casereports[(di+i)%100]*gaussian(cd_m,cd_m, casedelay_v);
             }
             if (dow(d)==weekendday) {
                 cr*=weekendeffect;
@@ -253,23 +272,24 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
             cases+=cr;
             casereports[(di+i)%100]-=cr;
         }
-        double err=0;
+        long long err=0;
         if (d<lastcaseday && rcases[d]) {
             err=(rcases[d] - cases);
-            if (d>lastcaseday-7) {
-                err*=2;
+            if (d>lastcaseday-20) {
+                err*=10;
             } else {
-                err=min(abs(err),cases/2.0);
+//                err=min(abs(err),cases/2.0);
             }
-            
-            score+=(err*err)/((lastcaseday+1)-d);
+            score+=abs(err);
+//            score+=(err*err)/((lastcaseday+1)-d);
         }
         if (record) cpd[d]=cases;
         if (verbose) {
-            outfile << d-startday+1<<", "<<daytstr(d)<<", "<<R0<<", "<<infected[di]<<", "<<cases<<", "
+            outfile << d-startday+1<<", "<<daytstr(d)<<", "<<R0<<", "<< SDe <<", "<<mob<<", "<<infected[di]<<", "<<cases<<", "
                     <<((d<lastcaseday) && rcases[d]?to_string(rcases[d]):" ")<<", "
                  <<(rcases[d]&&rcases[d-1]?to_string(rcases[d]-rcases[d-1]):" ")
                  <<", "<<err<<", "<<(cases-oldcases);
+
             for (auto itr = bestruns.crbegin(); itr != bestruns.crend(); ++itr) { 
                 if (itr->second.second.size()>d) {
                     if (itr->second.second[d]>(cases*1.5)) outfile <<", ";
@@ -283,7 +303,7 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
         oldcases=cases;
         // day +1
     }
-
+    score=abs(score);
     if (record && (abs(bestscore-score)/bestscore < 1)) {
         if (score < bestscore) {
             bestcases=cases;
@@ -483,7 +503,7 @@ int main(int argc, char *argv[])
     }
     
 
-    int ignoreAbove=100;
+    int ignoreAbove=10;
     int stopday=MAXDAYS; // stop reading cases after this day
     bool cont=false;
     bool facsprovided=false;
@@ -570,12 +590,14 @@ int main(int argc, char *argv[])
             if (fields[2]==country) {
                 int d=strtday(fields[3]);
                 if (d>=0 && d<MAXDAYS) {
-                    int cases=stoi(fields[4]);
-                    rcases[d]=cases;
-                    casesperday[dow(d)]+=cases-oldcases;
-                    oldcases=cases;
-                    lastcaseday=d;
-                    found++;
+                    if (fields[4]!="") {
+                        int cases=stoi(fields[4]);
+                        rcases[d]=cases;
+                        casesperday[dow(d)]+=cases-oldcases;
+                        oldcases=cases;
+                        lastcaseday=d;
+                        found++;
+                    }
                 }
                 
                 if (fields[22]!="") tests[d]=stof(fields[22]); // tests per case
@@ -590,6 +612,36 @@ int main(int argc, char *argv[])
         cout << "Unable to find country "<<country<<" in owid-covid-data.csv\n"; exit(-1);
     }
 
+    if (country=="France") {
+        int d;
+        for (int i=0;i<8;i++) casesperday[i]=0;
+        ifstream myfile ("sp-pos-quot-fra.csv");
+        int terror=0;
+        if (myfile.is_open()) {
+            string line;
+            while(getline(myfile,line))
+            {
+                vector<string> fields = split(line,';');
+                if (fields[8]=="0") {
+                    d=strtday(fields[1]);
+                    if (d>=0 && d<MAXDAYS) {
+                        if (first_sp_pos_d==0) first_sp_pos_d=d;
+                        int dcases=stoi(fields[4]);
+                        int cases=rcases[d-1]+dcases;
+                        terror=cases-rcases[d];
+//                        cout << "corrected "<<cases<<" old "<< rcases[d]<< " error "<<terror << "\n";
+                        rcases[d]=cases;
+                        casesperday[dow(d)]+=dcases;
+                    }
+                }
+            }
+            myfile.close();
+        }
+        for (d++;d<=lastcaseday;d++) {
+            rcases[d]+=terror;
+        }
+    }
+    
     if (lastcaseday>stopday) lastcaseday=stopday;
     
     
@@ -628,14 +680,31 @@ int main(int argc, char *argv[])
             if (fields[1]==country && fields[2]=="") {
                 int d=strtday(fields[7]);
                 if (d>=0) {
-                    double m=(double)(stoi(fields[8])+stoi(fields[9])+stoi(fields[10])+stoi(fields[11])+stoi(fields[12])-stoi(fields[13]))/6.0;
-                    mobility[d]=m;
-                    lastmobility=((lastmobility*2.0)+m)/3.0;
+                    int n=0;
+                    double m=0.0;
+//                    m+=stoi(fields[8]);
+//                    mobility[d]=new vector<int>;
+                    for (int i=8;i<=13;i++) {
+                        mobility[d].push_back(stoi(fields[i]));
+                        if ((i!=10) && (fields[i]!="")) {
+                            if (i!=13) {
+                                m+=stoi(fields[i]);
+                            } else {
+                                m-=stoi(fields[i]);
+                            }
+                            n++;
+                        }
+                    }
+                    if (n) m=m/(double)n;
+//                    double m=(double)(stoi(fields[8])+stoi(fields[9])+stoi(fields[10])+stoi(fields[11])+stoi(fields[12])-stoi(fields[13]))/6.0;
+//                    mobility[d]=m;
+//                    lastmobility=((lastmobility*2.0)+m)/3.0;
                     lastmobilityday=d;
                     found++;
                 }
             }
         }
+        
         data.close();
     } else {
         cout<< "Cant find Global_Mobility_Report.csv\n"; exit(-1);
