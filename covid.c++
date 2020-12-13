@@ -17,14 +17,14 @@
 using namespace std;
 
 
-vector<std::string> facs_names = { "Base R0 for virus", "Unreported", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Cases reporting delay mean", "Case reporting delay variance", "Social Distancing effect",  "SD Intro day",  "SD Intro day var", "Start day",
+vector<std::string> facs_names = { "Base R0 for virus", "Unreported", "Mobility multiply", "Daily Imported cases", "Infectious day mean", "Infectious day variance", "Cases reporting delay mean", "Case reporting delay variance", "Social Distancing effect",  "SD Intro day",  "SD Intro day var", "Start day", "Temp cutoff", "Temp factor",
 "retail_and_recreation","grocery_and_pharmacy","parks","transit_stations","workplaces","residential"
     };
 
 
-vector<double> facs_min = {2.5, 0.6, 0.6, 9.5,1.5,    4, 10,   0,   0.5, 115, 20, 25 , -10,-10,-10,-10,-10,-10 };
-vector<double> facs_nom = {3.0, 0.8, 0.7, 9.5,  2,    5, 15,   1,   0.7, 135, 30, 25 , 1,-1,1,1,1,1 };
-vector<double> facs_max=  {3.5, 0.95, 0.8, 9.5,  3,    6, 25,   5,   0.9, 145, 40, 25 , 10,10,10,10,10,10 };
+vector<double> facs_min = {2.5, 0.6, 0.6, 9.5,1.5,    4, 10,   0,   0.5, 115, 20, 25 , 5, 0,  -10,-10,-10,-10,-10,-10 };
+vector<double> facs_nom = {3.0, 0.8, 0.7, 9.5,  2,    5, 15,   1,   0.7, 135, 30, 25 , 12, -0.01, 1,-1,1,1,1,1 };
+vector<double> facs_max=  {3.5, 0.95, 0.8, 9.5,  3,    6, 25,   5,   0.9, 145, 40, 25 , 25, -0.1,  10,10,10,10,10,10 };
 //vector<double> facs_min = {2.5, 0.6, 0.6, 9.5,1.5,    5, 15,   1,   0.5, 135, 30, 25 , -10,-10,-10,-10,-10,-10 };
 //vector<double> facs_nom = {3.0, 0.8, 0.7, 9.5,  2,    5, 15,   1,   0.7, 135, 30, 25 , 1,-1,1,1,1,1};
 //vector<double> facs_max=  {3.5, 0.9, 0.8, 9.5,  3,    5, 15,   1,   0.9, 135, 30, 25 , 10,10,10,10,10,10};
@@ -66,13 +66,16 @@ int weekendday=0;
 double weekendeffect=0;
 int first_sp_pos_d=0;
 
-int strtday(string str)
+bool recordBestRuns=false;
+
+int strtday(string str, bool ignore=false)
 {
     struct tm tm={};
     const char *cstr=str.c_str();
     if (strptime(cstr, "%Y-%m-%d", &tm)) {
         int d=((mktime(&tm) + (12*60*60))- day0) / (60*60*24);
         if (d<=0 || d>=MAXDAYS) {
+            if (ignore) return -1;
             cout << "Day "<<cstr<<" read as day "<<d<<" doesn't make sense\n";
             cout << tm.tm_year<<" "<<tm.tm_mon<<" "<<tm.tm_mday<<"\n";
             exit(-1);
@@ -192,6 +195,9 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
 
     int startday=(int)facs[11];
 
+    double temp_cut_off=facs[12];
+    double temp_fac=facs[13];
+
     double casereports[100]={0};
     double infected[100]={0};
 
@@ -234,14 +240,19 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
         } else {
             if (mobility[d].size()) {
                 for (int i=0;i<mobility[d].size();i++) {
-                    mob+=mobility[d][i]*facs[12+i];
+                    mob+=mobility[d][i]*facs[14+i];
                 }
             }
             lastmobility=((lastmobility*2.0)+mob)/3.0;
 
         }
 
-        R0=R0_pop * (((100.0+mob) * mob_fac * SDe)/100.0);
+        double t_fac=1.0;
+        if (temps[d]!=0) {
+            t_fac=1.0 + ((temps[d]-temp_cut_off)*temp_fac);
+        }
+
+        R0=R0_pop * (((100.0+mob) * mob_fac * SDe)/100.0) * t_fac;
 
 
         int di=99-(d%100);
@@ -290,13 +301,15 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
                  <<(rcases[d]&&rcases[d-1]?to_string(rcases[d]-rcases[d-1]):" ")
                  <<", "<<err<<", "<<(cases-oldcases);
 
-            for (auto itr = bestruns.crbegin(); itr != bestruns.crend(); ++itr) { 
-                if (itr->second.second.size()>d) {
-                    if (itr->second.second[d]>(cases*1.5)) outfile <<", ";
-                    else outfile << ", " << itr->second.second[d];
+            if (recordBestRuns) {
+                for (auto itr = bestruns.crbegin(); itr != bestruns.crend(); ++itr) { 
+                    if (itr->second.second.size()>d) {
+                        if (itr->second.second[d]>(cases*1.5)) outfile <<", ";
+                        else outfile << ", " << itr->second.second[d];
+                    }
+                    
                 }
-                
-            } 
+            }
             outfile <<"\n";
         }
         
@@ -311,9 +324,11 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
         } else {   
             unique_lock<mutex> lck(mtx);
             double s= -(abs(bestcases-cases)/abs(bestscore-score));
-            bestruns.insert(make_pair(s,make_pair(score,cpd)));
-            while (bestruns.size()>10) {
-                bestruns.erase(--bestruns.end());
+            if (recordBestRuns) {
+                bestruns.insert(make_pair(s,make_pair(score,cpd)));
+                while (bestruns.size()>10) {
+                    bestruns.erase(--bestruns.end());
+                }
             }
         }
     }
@@ -322,9 +337,11 @@ double run (bool verbose, vector<double> &facs, bool record=false, ostream &outf
     
     if (verbose) {
         outfile<< "Score: "<< score<<"   , , , , , , , , ";
-        for (auto itr = bestruns.crbegin(); itr != bestruns.crend(); ++itr) { 
-            outfile << ", \"score: " << itr->second.first << " \"";
-        } 
+        if (recordBestRuns) {
+            for (auto itr = bestruns.crbegin(); itr != bestruns.crend(); ++itr) { 
+                outfile << ", \"score: " << itr->second.first << " \"";
+            }
+        }
         outfile <<"\n";
     }
     
@@ -513,7 +530,7 @@ int main(int argc, char *argv[])
     string country="unknown";
     int c;
     do {
-        while ((c=getopt(argc,argv,"co:n:qs:i:")) != -1)
+        while ((c=getopt(argc,argv,"co:n:qs:i:b")) != -1)
         {
             switch (c) {
                 case 'c':
@@ -535,6 +552,9 @@ int main(int argc, char *argv[])
                     break;
                 case 'i':
                     ignoreAbove=stoi(optarg);
+                    break;
+                case 'b':
+                    recordBestRuns=true;
                     break;
             }
         }
@@ -613,32 +633,57 @@ int main(int argc, char *argv[])
     }
 
     if (country=="France") {
-        int d;
-        for (int i=0;i<8;i++) casesperday[i]=0;
-        ifstream myfile ("sp-pos-quot-fra.csv");
-        int terror=0;
-        if (myfile.is_open()) {
-            string line;
-            while(getline(myfile,line))
-            {
-                vector<string> fields = split(line,';');
-                if (fields[8]=="0") {
-                    d=strtday(fields[1]);
-                    if (d>=0 && d<MAXDAYS) {
-                        if (first_sp_pos_d==0) first_sp_pos_d=d;
-                        int dcases=stoi(fields[4]);
-                        int cases=rcases[d-1]+dcases;
-                        terror=cases-rcases[d];
+        {
+            int d;
+            for (int i=0;i<8;i++) casesperday[i]=0;
+            ifstream myfile ("sp-pos-quot-fra.csv");
+            int terror=0;
+            if (myfile.is_open()) {
+                string line;
+                while(getline(myfile,line))
+                {
+                    vector<string> fields = split(line,';');
+                    if (fields[8]=="0") {
+                        d=strtday(fields[1]);
+                        if (d>=0 && d<MAXDAYS) {
+                            if (first_sp_pos_d==0) first_sp_pos_d=d;
+                            int dcases=stoi(fields[4]);
+                            int cases=rcases[d-1]+dcases;
+                            terror=cases-rcases[d];
 //                        cout << "corrected "<<cases<<" old "<< rcases[d]<< " error "<<terror << "\n";
-                        rcases[d]=cases;
-                        casesperday[dow(d)]+=dcases;
+                            rcases[d]=cases;
+                            casesperday[dow(d)]+=dcases;
+                        }
+                    }
+                }
+                myfile.close();
+            }
+            for (d++;d<=lastcaseday;d++) {
+                rcases[d]+=terror;
+            }
+        }
+        {
+            ifstream myfile ("daily-temp-dep.csv");
+            if (myfile.is_open()) {
+                string line;
+                double ttotals[MAXDAYS]={0};
+                int deps[MAXDAYS]={0};
+                while(getline(myfile,line))
+                {
+                    vector<string> fields = split(line,';');
+
+                    int d=strtday(fields[0], true);
+                    if (d>=0) {
+                        ttotals[d]+=stof(fields[5]);
+                        deps[d]++;
+                    }
+                }
+                for (int d=0;d<MAXDAYS;d++) {
+                    if (deps[d]) {
+                        temps[d]=ttotals[d]/(float)deps[d];
                     }
                 }
             }
-            myfile.close();
-        }
-        for (d++;d<=lastcaseday;d++) {
-            rcases[d]+=terror;
         }
     }
     
