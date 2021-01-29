@@ -13,9 +13,7 @@ Each case generates new cases at the R0 value, but distributed with a mean and v
 
 These mean and variance numbers have a HUGE impact on the results. 
 
-10% of Cases are then finally recorded (which seems to be what has been reported), some days after infection.
-
-Cases are under-reported during weekends.
+NB the model has been tuned for the French data only now.
 
 Hence the factors that are 'adjutable' are
 
@@ -36,6 +34,14 @@ Hence the factors that are 'adjutable' are
   - The mean day on which social distancing is introduced
 - Social Distancing Introduction day variance
 - Start day
+- Temp cutoff
+  - Temperature factor below which people seem to propogate the virus more
+- Temp factor
+- UK VoC Introduction day
+  - Day the second varient arrived
+- UK VoC base R0
+- Mobility factors for :  retail_and_recreation  grocery_and_pharmacy         parks  transit_stations    workplaces   residential
+
 
 A modified simulated annealing approach is then used to find the best match using these variables.
 
@@ -44,8 +50,6 @@ The result shows a relatively close match to the actual data.
 France:
 <img src="./output-fr.svg">
 
-UK:
-<img src="./output-uk.svg">
 
 To run the simulation first compile with your preffered compiler, e.g.
 ```bash
